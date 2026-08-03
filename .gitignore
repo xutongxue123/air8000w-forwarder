@@ -1,0 +1,40 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Secrets and certificates
+secrets/
+.secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data and temporary files
+*.log
+*.tmp
+*.bak
+*.new
+*.ndjson
+history/
+
+# Lua bytecode
+*.luac
+
+# Test and build outputs
+coverage/
+test-results/
+build/
+dist/
+out/
+
+# Editor and OS files
+.vscode/
+.idea/
+.vs/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

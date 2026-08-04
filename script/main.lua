@@ -37,7 +37,8 @@ wdt.init(9000)
 sys.timerLoopStart(wdt.feed, 3000)
 
 local network_config = type(config.NETWORK) == "table" and config.NETWORK or {}
-local cellular_recovery_period = network_config.cellular_data_enabled == true and 60000 or nil
+local cellular_recovery_period = network_config.cellular_data_enabled == true
+    and network_config.cellular_flight_mode ~= true and 60000 or nil
 mobile.setAuto(10000, 0, 8, nil, cellular_recovery_period)
 mobile.ipv6(config.IPV6_ENABLED == true)
 
@@ -191,6 +192,8 @@ local function snapshot()
     local fs_total_bytes = fs_ready and fs_total_blocks * fs_block_size or nil
     local fs_used_bytes = fs_ready and fs_used_blocks * fs_block_size or nil
     local network = util_network.getStatus()
+    local service_cell = type(util_mobile.serviceCell) == "function"
+        and util_mobile.serviceCell() or {}
     return {
         now_tick = now_tick,
         uptime = formatUptime(now_tick / 1000),
@@ -203,6 +206,7 @@ local function snapshot()
         data_type = network.network_type or "none",
         data_adapter = network.adapter or -1,
         cellular_data_enabled = network.cellular_data_enabled == true,
+        cellular_flight_mode = network.cellular_flight_mode == true,
         cellular_local_ip = network.cellular_local_ip or "none",
         wifi_enabled = network.wifi_enabled,
         wifi_connected = network.wifi_connected,
@@ -211,6 +215,12 @@ local function snapshot()
         wifi_rssi = network.wifi_rssi or "unknown",
         wifi_rssi_source = network.wifi_rssi_source or "unknown",
         rsrp = mobile.rsrp(), rsrq = mobile.rsrq(), snr = mobile.snr(),
+        cell = {
+            eci = service_cell.eci or service_cell.cid,
+            pci = service_cell.pci,
+            earfcn = service_cell.earfcn,
+            band = service_cell.band,
+        },
         notify = notify,
         last_sms = formatTickAge(last_sms_tick, now_tick),
         last_success = formatTickAge(notify.last_success_tick, now_tick),
@@ -277,6 +287,7 @@ local function logHealthStatus()
 end
 
 sms.setNewSmsCb(function(sender_number, sms_content, metadata)
+    if type(util_network.isFlightMode) == "function" and util_network.isFlightMode() then return end
     sender_number = tostring(sender_number or "")
     sms_content = tostring(sms_content or "")
     last_sms_tick = mcu.ticks()
@@ -327,6 +338,7 @@ end)
 sys.taskInit(function()
     if type(config.PIN_CODE) ~= "string" or config.PIN_CODE == "" then return end
     sys.wait(5000)
+    if util_network.isFlightMode() then return end
     util_mobile.pinVerify(config.PIN_CODE)
 end)
 

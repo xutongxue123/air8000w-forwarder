@@ -184,6 +184,7 @@ local function fallbackStatus()
         data_ready = network.ready,
         data_type = text(network.network_type, "none"),
         data_adapter = number(network.adapter, -1),
+        cellular_flight_mode = network.cellular_flight_mode == true,
         wifi_local_ip = text(network.wifi_local_ip, "none"),
         wifi_rssi = text(network.wifi_rssi, "unknown"),
         operator = text(operator, "运营商未识别"),
@@ -290,12 +291,37 @@ DASHBOARD = replaceLiteral(DASHBOARD,
     "e.oninput=e.onchange=()=>c[e.dataset.k]=e.type==='checkbox'?e.checked:e.value")
 DASHBOARD = replaceLiteral(DASHBOARD, "function stat(s){",
     "function grade(v,type){let n=Number(v);if(!Number.isFinite(n))return '--';let good=type==='wifi'?-60:-85,fair=type==='wifi'?-75:-100;return n+' · '+(n>=good?'好':n>=fair?'良':'差')}function stat(s){")
+DASHBOARD = replaceLiteral(DASHBOARD,
+    '<div class="sub" id="memory">内存 --</div>',
+    '<div class="sub" id="memory">Lua --</div>')
+DASHBOARD = DASHBOARD:gsub('<div><span>[^<]*</span><b id="mem2">--</b></div>', '')
+DASHBOARD = replaceLiteral(DASHBOARD, '<div><span>系统内存</span><b id="mem2">--</b></div>', '')
+DASHBOARD = replaceLiteral(DASHBOARD,
+    "set('memory','Lua '+(s.lua_mem||'--'));",
+    "set('memory','Lua '+(s.lua_mem||'--'));window.__dashboardStatus=s;window.renderRuntimeSpace?.(s);")
+DASHBOARD = replaceLiteral(DASHBOARD, "set('mem2',s.sys_mem);", '')
 DASHBOARD = replaceLiteral(DASHBOARD, "set('rssi',s.wifi_rssi==='unknown'?'--':s.wifi_rssi);",
     "set('rssi',grade(s.wifi_rssi,'wifi'));")
 DASHBOARD = replaceLiteral(DASHBOARD, "set('rsrp',s.rsrp);set('rsrp2',s.rsrp);",
     "set('rsrp',grade(s.rsrp,'cell'));set('rsrp2',grade(s.rsrp,'cell'));")
+DASHBOARD = replaceLiteral(DASHBOARD,
+    '<article class="panel"><h2>移动网络与设备</h2>',
+    '<article class="panel network-panel"><div class="network-panel-heading"><div class="network-panel-copy"><h2>移动网络与设备</h2>')
+DASHBOARD = replaceLiteral(DASHBOARD,
+    '</span></p><div class="signal">',
+    '</span></p></div><div class="flight-mode-card-status" id="cellularFlightModeStatusWrap" aria-live="polite"><span>飞行模式</span><b id="cellularFlightModeStatus">--</b></div></div><div class="signal">')
+DASHBOARD = replaceLiteral(DASHBOARD,
+    "set('data',(s.data_type||'无')+' / '+(s.data_adapter??'--'));",
+    "set('cellularFlightModeStatus',s.cellular_flight_mode===true?'已开启':'未开启');let flightStatus=$('cellularFlightModeStatusWrap');if(flightStatus)flightStatus.classList.toggle('enabled',s.cellular_flight_mode===true);set('data',(s.data_type||'无')+' / '+(s.data_adapter??'--'));" )
+DASHBOARD = replaceLiteral(DASHBOARD,
+    "set('cellularFlightModeStatus',s.cellular_flight_mode===true?'已开启':'未开启');",
+    "set('cellularFlightModeStatus',s.cellular_flight_mode===true?'已开启':'未开启');let systemMemory=$('mem2');if(systemMemory&&systemMemory.parentElement)systemMemory.parentElement.remove();")
+DASHBOARD = replaceLiteral(DASHBOARD, "</style>",
+    ".network-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.network-panel-copy{min-width:0}.network-panel-heading h2{margin:0 0 7px}.network-panel-heading .muted{line-height:1.5}.network-panel{display:block!important;min-width:0}.network-panel>.signal{display:block;min-width:0;margin:0 0 18px}.network-panel>.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));min-width:0}.flight-mode-card-status{display:flex;align-items:center;gap:6px;flex:0 0 auto;white-space:nowrap;padding:6px 9px;border:1px solid #cbd5e1;border-radius:999px;background:#f8fafc;color:#64748b;font-size:12px}.flight-mode-card-status b{font-weight:700}.flight-mode-card-status.enabled{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}@media(max-width:600px){.network-panel-heading{gap:10px;margin-bottom:16px}.flight-mode-card-status{padding:5px 7px}.network-panel>.kv{grid-template-columns:1fr}}</style>")
 DASHBOARD = replaceLiteral(DASHBOARD, "</style>",
     "@media(min-width:851px){html,body{height:100%;overflow:hidden}.app{height:100vh;min-height:0;overflow:hidden;grid-template-columns:245px minmax(0,1fr)}.side{height:100vh;overflow-y:auto;position:sticky;top:0}.app>section{height:100vh;min-width:0;overflow-y:auto;overflow-x:hidden}.top{position:sticky;top:0;z-index:10}.main{min-height:calc(100vh - 72px)}}.check{display:flex;grid-column:1/-1;flex-direction:row-reverse;justify-content:space-between;min-height:43px;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px}.check label{margin:0!important;cursor:pointer}.check input{width:18px;height:18px;margin:0;cursor:pointer}</style>")
+DASHBOARD = replaceLiteral(DASHBOARD, "</style>",
+    ".network-panel>.signal{padding:20px}.network-panel>.signal .label{display:inline-block;margin-bottom:10px}.network-panel>.signal .kv{margin-top:2px}.network-panel>.kv{gap:0 22px}</style>")
 DASHBOARD = replaceLiteral(DASHBOARD, "class=\"field check\"",
     "class=\"field check wide\"")
 DASHBOARD = replaceLiteral(DASHBOARD, "/webhook|url|api/.test(k)",
@@ -471,6 +497,8 @@ local WIFI_SWITCH_LABEL_EXTENSION = [=[<script>(function(){let renderWifiSetting
 local CELLULAR_DATA_SETTINGS_EXTENSION = [=[<script>(function(){let renderNetworkSettings=renderSettings;renderSettings=function(){renderNetworkSettings();let panel=document.querySelector('#settings .settings-stack');if(!panel||$('cellularDataEnabled'))return;let network=cfg.NETWORK||(cfg.NETWORK={}),wifiCard=panel.querySelector('.settings-block');wifiCard.insertAdjacentHTML('afterend','<section class="settings-block" id="cellularDataSettings"><h2>蜂窝数据设置</h2><p>Wi-Fi 与蜂窝数据均启用时，Wi-Fi 优先、4G 备用；仅启用其中之一时只使用该网络；两者均关闭时不使用数据网络。</p><div class="field check wide"><label for="cellularDataEnabled"></label><input id="cellularDataEnabled" type="checkbox"></div></section>');let toggle=$('cellularDataEnabled'),label=document.querySelector('label[for="cellularDataEnabled"]'),update=()=>label.textContent=(toggle.checked?'已启用':'未启用')+'蜂窝数据（重启后生效）';toggle.checked=network.cellular_data_enabled===true;toggle.onchange=()=>{network.cellular_data_enabled=toggle.checked;update()};update()};if($('settings')&&$('settings').classList.contains('active'))renderSettings()})()</script>]=]
 
 
+local CELLULAR_FLIGHT_MODE_EXTENSION = [=[<style>.settings-action-row{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.flight-mode-button{color:#1d4ed8;background:#fff;border:1px solid #93c5fd}.flight-mode-button:hover{background:#eff6ff}.flight-mode-button.active{color:#fff;background:#2563eb}.flight-mode-button:disabled{opacity:.65}@media(max-width:700px){#settings .hero{flex-wrap:wrap;gap:12px}#settings .hero>div:last-child{width:100%;justify-content:flex-start}.settings-action-row .btn{flex:1;min-width:0}}</style><script>(function(){let r=renderSettings;renderSettings=function(){r();let a=$('settings')?.querySelector('.hero')?.children[1];if(!a||$('cellularFlightModeButton'))return;a.classList.add('settings-action-row');a.insertAdjacentHTML('beforeend','<button class="btn flight-mode-button" id="cellularFlightModeButton" type="button" aria-pressed="false">&#x98de;&#x884c;&#x6a21;&#x5f0f;</button>');let n=cfg.NETWORK||(cfg.NETWORK={}),b=$('cellularFlightModeButton'),u=()=>{let e=n.cellular_flight_mode===true;b.classList.toggle('active',e);b.setAttribute('aria-pressed',e);b.title=e?'\u5df2\u5f00\u542f\uff1a4G \u6a21\u5757\u4e0d\u53ef\u63a5\u6536\u77ed\u4fe1\u548c\u7535\u8bdd':'\u672a\u5f00\u542f\uff1a4G \u6a21\u5757\u4e0d\u53ef\u63a5\u6536\u77ed\u4fe1\u548c\u7535\u8bdd'};b.onclick=async()=>{let p=n.cellular_flight_mode===true,e=!p;b.disabled=true;n.cellular_flight_mode=e;u();try{let r=await fetch('/api/cellular/flight-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e})}),v=await r.json();if(!r.ok||v.ok!==true)throw Error(v.detail||'\u98de\u884c\u6a21\u5f0f\u8bbe\u7f6e\u5931\u8d25');n.cellular_flight_mode=v.cellular_flight_mode===true;note(e?'\u98de\u884c\u6a21\u5f0f\u5df2\u5f00\u542f':'\u98de\u884c\u6a21\u5f0f\u5df2\u5173\u95ed')}catch(x){n.cellular_flight_mode=p;note(x.message)}finally{b.disabled=false;u()}};u()};if($('settings')?.classList.contains('active'))renderSettings()})()</script>]=]
+
 local ACTIVE_PAGE_REFRESH_EXTENSION = [=[<script>(function(){let activePage=document.querySelector('.page.active');if(!activePage)return;let name=activePage.id;if(name==='overview'){loadStatus();return}if(name==='channels'){loadCfg().catch(e=>note(e.message));return}if(name==='filters'||name==='settings'){loadCfg().then(()=>name==='filters'?renderFilters():renderSettings()).catch(e=>note(e.message))}})()</script>]=]
 
 local LOCAL_NUMBER_EXTENSION = [=[<script>(function(){let priorRenderSettings=renderSettings;renderSettings=function(){priorRenderSettings();let panel=document.querySelector('#settings .settings-stack'),pin=panel&&panel.querySelector('.settings-block.pin');if(!panel||!pin||$('localNumber'))return;pin.insertAdjacentHTML('beforeend','<div class="field" style="margin-top:16px"><label for="localNumber">本机号码</label><input id="localNumber" inputmode="tel" autocomplete="tel"><p class="help">设备无法从 SIM 读取号码时使用此号码。</p></div>');$('localNumber').value=cfg.FALLBACK_LOCAL_NUMBER||'';$('localNumber').oninput=()=>cfg.FALLBACK_LOCAL_NUMBER=$('localNumber').value}})()</script>]=]
@@ -481,11 +509,11 @@ BASE_DASHBOARD = replaceLiteral(BASE_DASHBOARD, "(s.network_type||'无网络')+'
 local SMS_CENTER_REFERENCE_EXTENSION = [=[<style>#sms .sms-conversations{grid-template-rows:1fr auto}#sms .sms-sidebar{grid-column:1;grid-row:1;border-right:1px solid #e2e8f0}#sms .sms-contacts{border:0;height:calc(100% - 60px);overflow:auto}#sms .sms-contact{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:22px 22px;column-gap:8px;row-gap:4px;min-height:78px;height:78px;align-items:center}#sms .sms-contact b{grid-column:1;grid-row:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#sms .sms-contact time{grid-column:2;grid-row:1;float:none;white-space:nowrap}#sms .sms-contact small{grid-column:1/-1;grid-row:2;margin-top:0;line-height:22px}#sms .sms-search{padding:12px;border-bottom:1px solid #e2e8f0}#sms .sms-search input{width:100%;padding:10px;border:0;border-radius:9px;background:#f8fafc;font:inherit}#sms #smsDetail{grid-column:2;grid-row:1}#sms .sms-reply{grid-column:2;grid-row:2}@media(max-width:760px){#sms .sms-sidebar,#sms #smsDetail,#sms .sms-reply{grid-column:1;grid-row:auto}#sms .sms-contacts{height:auto;max-height:220px}}</style><script>(function(){let p=$('sms'),l=p&&p.querySelector('.sms-conversations'),c=$('smsContacts');if(!l||!c)return;let s=document.createElement('div');s.className='sms-sidebar';c.parentNode.insertBefore(s,c);s.appendChild(c);s.insertAdjacentHTML('afterbegin','<div class="sms-search"><input id="smsSearch" placeholder="搜索联系人或内容..."></div>');let q=$('smsSearch'),f=()=>{let v=q.value.toLowerCase();c.querySelectorAll('.sms-contact').forEach(x=>x.hidden=v&&!x.textContent.toLowerCase().includes(v))};q.oninput=f;new MutationObserver(f).observe(c,{childList:true});let h=p.querySelector('.hero p');if(h)h.textContent='查看短信会话、搜索历史记录，或向任意号码发送新短信。'})()</script>]=]
 REFRESH_ENDPOINTS_EXTENSION = replaceLiteral(REFRESH_ENDPOINTS_EXTENSION, "刷新短信", "刷新")
 local SMS_REPLY_EXTENSION = [=[<style>.sms-reply{grid-column:2;display:flex;gap:8px;padding:10px 16px;border-top:1px solid #e2e8f0}.sms-reply textarea{flex:1;height:42px;min-height:42px;resize:none;border:1px solid #cbd5e1;border-radius:8px;padding:9px;font:inherit}.sms-reply button{align-self:flex-end;height:42px}@media(max-width:760px){.sms-reply{grid-column:1}}</style><script>(function(){let d=$('smsDetail');if(!d)return;d.parentNode.insertAdjacentHTML('beforeend','<div class="sms-reply"><textarea id="smsReplyText" rows="2" placeholder="输入短信内容"></textarea><button class="button btn" id="smsReplySend">发送</button></div>');let t=$('smsReplyText'),b=$('smsReplySend');b.onclick=async()=>{let a=document.querySelector('#smsContacts .sms-contact.active'),n=a&&a.dataset.phone,c=t.value.trim();if(!n||!c){note('请选择号码并输入短信内容');return}b.disabled=true;try{let r=await fetch('/api/sms/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:n,content:c})}),v=await r.json();if(!r.ok||!v.ok)throw Error(v.detail||'短信发送失败');let m=d.querySelector('.sms-messages');if(m)m.insertAdjacentHTML('beforeend','<div class="sms-bubble outgoing">'+esc(c)+'<time>刚刚</time></div>');t.value=''}catch(e){note(e.message)}finally{b.disabled=false}}})()</script>]=]
-local SMS_STORAGE_SPACE_EXTENSION = [=[<style>.sms-space-card{margin:0 0 18px;padding:16px 20px}.sms-space-card h2{margin:0 0 12px;font-size:16px}.sms-space-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.sms-space-item{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:#f8fafc;border-radius:9px}.sms-space-item span{color:#64748b}.sms-space-item b{white-space:nowrap}.sms-space-meter{height:7px;margin-top:14px;background:#e2e8f0;border-radius:8px;overflow:hidden}.sms-space-meter i{display:block;width:0;height:100%;background:#2563eb;border-radius:8px;transition:width .2s}.sms-space-card p{margin:10px 0 0}@media(max-width:600px){.sms-space-grid{grid-template-columns:1fr}}</style><script>(function(){let page=$('sms');if(!page||page.querySelector('.sms-space-card'))return;let hero=page.querySelector('.hero');if(!hero)return;hero.insertAdjacentHTML('afterend','<article class="panel sms-space-card"><h2>空间使用情况</h2><div class="sms-space-grid"><div class="sms-space-item"><span>短信/电话历史</span><b id="smsHistorySpace">--</b></div><div class="sms-space-item"><span>LittleFS 已用</span><b id="smsFsSpace">--</b></div></div><div class="sms-space-meter"><i id="smsHistorySpaceBar"></i></div><p class="muted" id="smsSpaceDetail">正在读取空间状态...</p></article>');let history=$('smsHistorySpace'),fs=$('smsFsSpace'),bar=$('smsHistorySpaceBar'),detail=$('smsSpaceDetail');function size(value){let bytes=Number(value)||0;if(bytes<1024)return bytes+' B';return (bytes/1024).toFixed(bytes%1024?'1':'0')+' KB'}function render(s){let used=Number(s.history_bytes)||0,budget=Number(s.history_budget)||0,percent=budget?Math.min(100,Math.round(used*100/budget)):0;history.textContent=size(used)+' / '+size(budget);fs.textContent=(s.fs_mem||'--')+' 已用';bar.style.width=percent+'%';detail.textContent=(s.fs_free||'--')+' 可用 · 文件系统 '+(s.fs_type||'unknown')+' · 历史占用 '+percent+'%'}async function load(){try{let response=await fetch('/api/status');if(!response.ok)throw Error();render(await response.json())}catch(error){detail.textContent='空间状态读取失败'}}let button=document.querySelector('.nav button[data-page="sms"]');if(button)button.addEventListener('click',load);load();setInterval(load,30000)})()</script>]=]
+local SMS_STORAGE_SPACE_EXTENSION = [=[<style>.sms-space-card{margin:0 0 18px;padding:16px 20px}.sms-space-card h2{margin:0 0 12px;font-size:16px}.sms-space-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.sms-space-item{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:#f8fafc;border-radius:9px}.sms-space-item span{color:#64748b}.sms-space-item b{white-space:nowrap}.sms-space-card p{margin:10px 0 0}@media(max-width:600px){.sms-space-grid{grid-template-columns:1fr}}</style><script>(function(){let page=$('sms');if(!page||page.querySelector('.sms-space-card'))return;let hero=page.querySelector('.hero');if(!hero)return;hero.insertAdjacentHTML('afterend','<article class="panel sms-space-card"><h2>空间使用情况</h2><div class="sms-space-grid"><div class="sms-space-item"><span>短信/电话历史</span><b id="smsHistorySpace">--</b></div><div class="sms-space-item"><span>LittleFS 已用</span><b id="smsFsSpace">--</b></div><div class="sms-space-item"><span>Lua</span><b id="smsLuaMemory">--</b></div><div class="sms-space-item"><span>系统内存</span><b id="smsSysMemory">--</b></div></div></article>');let history=$('smsHistorySpace'),fs=$('smsFsSpace'),lua=$('smsLuaMemory'),sys=$('smsSysMemory');function size(value){let bytes=Number(value)||0;if(bytes<1024)return bytes+' B';return (bytes/1024).toFixed(bytes%1024?'1':'0')+' KB'}function render(s){let used=Number(s.history_bytes)||0,budget=Number(s.history_budget)||0;history.textContent=size(used)+' / '+size(budget);fs.textContent=(s.fs_mem||'--')+' 已用';lua.textContent=s.lua_mem||'--';sys.textContent=s.sys_mem||'--'}async function load(){if(!page.classList.contains('active'))return;try{let response=await fetch('/api/status');if(!response.ok)throw Error();render(await response.json())}catch(error){}}let button=document.querySelector('.nav button[data-page="overview"]');if(button)button.addEventListener('click',load);if(page.classList.contains('active'))load();setInterval(load,30000)})()</script>]=]
 
 SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
     ".sms-space-card{margin:0 0 18px;padding:16px 20px}",
-    ".sms-space-card{margin:0;padding:22px;min-width:0;align-self:start;grid-column:2;grid-row:1}.grid>.panel:first-child{grid-column:1;grid-row:1 / span 2}.grid>.panel:nth-child(3){grid-column:2;grid-row:2}.sms-space-card h2{font-size:18px;line-height:1.4}.sms-space-card .sms-space-subtitle{margin:8px 0 18px;line-height:1.5}.sms-space-card .sms-space-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.sms-space-item{min-width:0;flex-direction:column;align-items:flex-start;gap:6px;padding:14px 16px}.sms-space-item span{font-size:13px}.sms-space-item b{font-size:16px;line-height:1.35;white-space:normal;overflow-wrap:anywhere}.sms-space-meter{margin-top:18px}.sms-space-card p:last-child{margin:12px 0 0;line-height:1.5}@media(max-width:850px){.grid>.panel:first-child,.sms-space-card,.grid>.panel:nth-child(3){grid-column:1;grid-row:auto}}@media(max-width:600px){.sms-space-card .sms-space-grid{grid-template-columns:1fr}}")
+    ".sms-space-card{margin:0;padding:22px;min-width:0;align-self:start;grid-column:2;grid-row:1}.grid>.panel:first-child{grid-column:1;grid-row:1 / span 2}.grid>.panel:nth-child(3){grid-column:2;grid-row:2}.sms-space-card h2{font-size:18px;line-height:1.4}.sms-space-card .sms-space-subtitle{margin:8px 0 18px;line-height:1.5}.sms-space-card .sms-space-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.sms-space-item{min-width:0;flex-direction:column;align-items:flex-start;gap:6px;padding:14px 16px}.sms-space-item span{font-size:13px}.sms-space-item b{font-size:16px;line-height:1.35;white-space:normal;overflow-wrap:anywhere}@media(max-width:850px){.grid>.panel:first-child,.sms-space-card,.grid>.panel:nth-child(3){grid-column:1;grid-row:auto}}@media(max-width:600px){.sms-space-card .sms-space-grid{grid-template-columns:1fr}}")
 SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
     "let hero=page.querySelector('.hero');if(!hero)return;hero.insertAdjacentHTML('afterend',",
     "let grid=page.querySelector('.grid');if(!grid)return;grid.firstElementChild.insertAdjacentHTML('afterend',")
@@ -497,10 +525,16 @@ SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
 SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
     "async function load(){try{let response=await fetch('/api/status');",
     "async function load(){if(!page.classList.contains('active'))return;try{let response=await fetch('/api/status');")
+SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
+    "async function load(){if(!page.classList.contains('active'))return;try{let response=await fetch('/api/status');if(!response.ok)throw Error();render(await response.json())}catch(error){}}let button=document.querySelector('.nav button[data-page=\"overview\"]');if(button)button.addEventListener('click',load);if(page.classList.contains('active'))load();setInterval(load,30000)",
+    "window.renderRuntimeSpace=render;if(window.__dashboardStatus)render(window.__dashboardStatus)")
 
 SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
     "<h2>空间使用情况</h2>",
-    "<h2>空间使用情况</h2><p class=\"muted sms-space-subtitle\">短信与文件系统实时监控</p>")
+    "<h2>空间使用情况</h2><p class=\"muted sms-space-subtitle\">系统运行空间监控</p>")
+SMS_STORAGE_SPACE_EXTENSION = replaceLiteral(SMS_STORAGE_SPACE_EXTENSION,
+    '<div class="sms-space-grid"><div class="sms-space-item"><span>短信/电话历史</span><b id="smsHistorySpace">--</b></div><div class="sms-space-item"><span>LittleFS 已用</span><b id="smsFsSpace">--</b></div><div class="sms-space-item"><span>Lua</span><b id="smsLuaMemory">--</b></div><div class="sms-space-item"><span>系统内存</span><b id="smsSysMemory">--</b></div></div>',
+    '<div class="sms-space-grid"><div class="sms-space-item"><span>系统内存</span><b id="smsSysMemory">--</b></div><div class="sms-space-item"><span>Lua</span><b id="smsLuaMemory">--</b></div><div class="sms-space-item"><span>LittleFS 已用</span><b id="smsFsSpace">--</b></div><div class="sms-space-item"><span>短信/电话占用</span><b id="smsHistorySpace">--</b></div></div>')
 
 CONTROL_EXTENSION = replaceLiteral(CONTROL_EXTENSION, "已保存，设备正在重启…", "配置已保存")
 SETTINGS_EXTENSION = replaceLiteral(SETTINGS_EXTENSION,
@@ -528,6 +562,7 @@ TEST_MODE_EXTENSION = replaceLiteral(TEST_MODE_EXTENSION,
 local DASHBOARD_EXTENSIONS = {
     CONTROL_EXTENSION, SETTINGS_EXTENSION, SETTINGS_LAYOUT_EXTENSION,
     WIFI_SWITCH_LABEL_EXTENSION, CELLULAR_DATA_SETTINGS_EXTENSION,
+    CELLULAR_FLIGHT_MODE_EXTENSION,
     FILTER_LAYOUT_EXTENSION,
     TEST_EXTENSION, CHANNEL_LAYOUT_EXTENSION, TEST_MODE_EXTENSION,
     CHANNEL_TYPE_LAYOUT_EXTENSION, CHANNEL_DOC_LAYOUT_EXTENSION, CHANNEL_LIST_LABEL_EXTENSION, CHANNEL_POLICY_HELP_EXTENSION, SMS_MODE_LABEL_EXTENSION,
@@ -591,6 +626,21 @@ local function validateChannelConfig(channel, value)
     return true
 end
 
+local function flightModeNotification(enabled, network_status)
+    local sim_ok, sim_ready = pcall(function()
+        return mobile.simPin(mobile.simid())
+    end)
+    local sim_text = not sim_ok and "SIM卡状态未知"
+        or sim_ready == true and "SIM卡已就绪" or "SIM卡未就绪"
+    local mode_text = enabled
+        and "已进入飞行模式"
+        or "已退出飞行模式"
+    local wifi_adapter = type(network_status) == "table"
+        and network_status.wifi_connected == true
+        and tonumber(network_status.wifi_adapter) or nil
+    return mode_text .. "，" .. sim_text .. "。", wifi_adapter
+end
+
 local function handler(_, method, uri, headers, body)
     if not auth(headers) then return 401, { ["WWW-Authenticate"] = 'Basic realm="Air8000W"' }, "Authentication required" end
     local path, query = splitUri(uri)
@@ -619,6 +669,44 @@ local function handler(_, method, uri, headers, body)
     if method == "GET" and path == "/api/history" then
         return jsonReply(util_history.getAll())
     end
+    if method == "POST" and path == "/api/cellular/flight-mode" then
+        local request = json.decode(body or "")
+        if type(request) ~= "table" or type(request.enabled) ~= "boolean" then
+            return jsonReply({ ok = false, detail = "cellular_flight_mode_required" })
+        end
+
+        local network_api = require "util_network"
+        local previous = network_api.isFlightMode()
+        local pin_verified = false
+        if previous ~= request.enabled then
+            local applied, apply_detail, verified = network_api.setFlightMode(request.enabled)
+            if not applied then
+                return jsonReply({ ok = false, detail = apply_detail or "4G flight mode failed" })
+            end
+            pin_verified = verified == true
+        end
+
+        local next_config = clone(config)
+        local network = type(next_config.NETWORK) == "table" and next_config.NETWORK or {}
+        next_config.NETWORK = network
+        network.cellular_flight_mode = request.enabled
+        local saved, save_detail = saveConfigValue(next_config)
+        if not saved then
+            if previous ~= request.enabled then network_api.setFlightMode(previous) end
+            return jsonReply({ ok = false, detail = save_detail or "4G flight mode persistence failed" })
+        end
+        local notification, wifi_adapter = flightModeNotification(request.enabled, network_api.getStatus())
+        if type(wifi_adapter) == "number" then
+            local notify_ok, queued = pcall(require("util_notify").addSystem,
+                notification, true, true, wifi_adapter)
+            if not notify_ok or queued ~= true then
+                log.warn("web", "4G flight mode notification was not queued")
+            end
+        else
+            log.warn("web", "4G flight mode notification skipped because Wi-Fi is unavailable")
+        end
+        return jsonReply({ ok = true, cellular_flight_mode = request.enabled, wifi_preserved = true, pin_verified = pin_verified })
+    end
     if method == "GET" and path == "/api/calls" then
         local limit, before = pageQuery(query)
         return jsonReply({ calls = util_history.getCalls(limit, before) })
@@ -628,6 +716,9 @@ local function handler(_, method, uri, headers, body)
         return jsonReply({ sms = util_history.getSms(limit, before) })
     end
     if method == "POST" and path == "/api/sms/send" then
+        if require("util_network").isFlightMode() then
+            return jsonReply({ ok = false, detail = "4G module is in flight mode" })
+        end
         local request = json.decode(body or "")
         local number = type(request) == "table" and tostring(request.number or "") or ""
         local content = type(request) == "table" and tostring(request.content or "") or ""

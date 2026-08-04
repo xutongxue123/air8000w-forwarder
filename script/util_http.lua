@@ -8,9 +8,9 @@ local function diag(event, ...)
     USER_DIAG("http", event, ...)
 end
 
-function util_http.fetch(timeout, method, url, headers, body)
+function util_http.fetch(timeout, method, url, headers, body, adapter_override)
     collectgarbage("collect")
-    local adapter = util_network.currentAdapter()
+    local adapter = tonumber(adapter_override) or util_network.currentAdapter()
     if type(adapter) ~= "number" then
         diag("skip", "reason", "no_network")
         return -1, nil, nil

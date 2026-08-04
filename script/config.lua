@@ -72,6 +72,8 @@ return {
         -- true：允许4G；与 wifi.enabled 组合后可形成仅4G或 Wi-Fi 优先/4G兜底。
         -- false：禁止应用使用4G数据，但不影响 SIM 注册、短信和通话。
         cellular_data_enabled = false,
+        cellular_flight_mode = false,
+        cellular_auto_reselect = { enabled = true, delta = 8 },
         -- Air8000W 固定使用 adapter 1 作为 4G 数据网卡。
         cellular_adapter = 1,
         -- Air8000W 固定使用 adapter 2 作为 Wi-Fi STA 网卡。

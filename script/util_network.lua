@@ -9,6 +9,7 @@ local active_type
 local wifi_adapter = 2
 local cellular_adapter = 1
 local cellular_data_enabled = false
+local cellular_flight_mode = false
 
 local function diag(event, ...)
     if type(USER_DIAG) ~= "function" then return end
@@ -28,9 +29,92 @@ local function networkConfig()
     return type(config.NETWORK) == "table" and config.NETWORK or {}
 end
 
+local function mobileMethod(name)
+    local ok, method = pcall(function()
+        return mobile and mobile[name]
+    end)
+    return ok and type(method) == "function" and method or nil
+end
+
+local function setAutoRecovery(enabled)
+    local set_auto = mobileMethod("setAuto")
+    if not set_auto then return end
+    local recovery_period = enabled and cellular_data_enabled and 60000 or 0
+    pcall(set_auto, enabled and 10000 or 0, 0, enabled and 8 or 0, nil, recovery_period)
+end
+
+local function applyFlightMode(enabled)
+    local flymode = mobileMethod("flymode")
+    if not flymode then
+        return false, "mobile.flymode_unavailable"
+    end
+    local ok, detail = pcall(flymode, 0, enabled == true)
+    if not ok then return false, tostring(detail) end
+    return true
+end
+
+local function withTemporaryFlightMode(action, error_key)
+    local temporary = not cellular_flight_mode
+    if temporary then
+        local ok, detail = applyFlightMode(true)
+        if not ok then return false, detail end
+    end
+    local result, detail = action()
+    if temporary then
+        local ok, exit_detail = applyFlightMode(false)
+        if not ok then
+            log.error("network", "failed to leave temporary flight mode", tostring(exit_detail))
+            return false, error_key .. "_flight_mode_exit_failed"
+        end
+    end
+    return result, detail
+end
+
+local function configureCellPolicy(name, constant, field, max_value, label, error_key)
+    local policy = networkConfig()[name]
+    if type(policy) ~= "table" or policy.enabled ~= true then return true end
+
+    local config_method = mobileMethod("config")
+    local config_id = mobile and mobile[constant]
+    local value = tonumber(policy[field])
+    if not config_method or type(config_id) ~= "number" then
+        log.warn("network", label .. " policy is unavailable")
+        return false, error_key .. "_unavailable"
+    end
+    if not value then
+        log.warn("network", label .. " is invalid")
+        return false, error_key .. "_" .. field .. "_invalid"
+    end
+    value = math.floor(math.max(0, math.min(max_value, value)))
+
+    return withTemporaryFlightMode(function()
+        local ok, result = pcall(config_method, config_id, value)
+        if ok and result == true then
+            info(label, value)
+            return true
+        end
+        log.warn("network", label .. " policy was rejected", tostring(result))
+        return false, error_key .. "_config_failed"
+    end, error_key)
+end
+
+local function verifyPinAfterFlightModeExit()
+    local pin_code = type(config.PIN_CODE) == "string" and config.PIN_CODE or ""
+    local ok, util_mobile = pcall(require, "util_mobile")
+    if not ok or type(util_mobile) ~= "table" or type(util_mobile.pinVerify) ~= "function" then
+        return false, "sim_pin_verify_unavailable"
+    end
+
+    local verify_ok, verified = pcall(util_mobile.pinVerify, pin_code)
+    if not verify_ok or verified ~= true then
+        return false, "sim_pin_verify_failed"
+    end
+    return true, true
+end
+
 local function isPermitted(adapter)
     return adapter == wifi_adapter
-        or (cellular_data_enabled and adapter == cellular_adapter)
+        or (cellular_data_enabled and not cellular_flight_mode and adapter == cellular_adapter)
 end
 
 local function publishState(next_ready, net_type, adapter)
@@ -65,6 +149,10 @@ local function statusChanged(net_type, adapter)
             end
         end
     else
+        if ready and type(adapter) == "number" and adapter ~= active_adapter
+            and isPermitted(active_adapter) then
+            return
+        end
         publishState(false)
     end
 end
@@ -133,7 +221,7 @@ end
 
 local function configureDns()
     local adapters = { wifi_adapter }
-    if cellular_data_enabled and cellular_adapter ~= wifi_adapter then
+    if cellular_data_enabled and not cellular_flight_mode and cellular_adapter ~= wifi_adapter then
         table.insert(adapters, cellular_adapter)
     end
     for _, adapter in ipairs(adapters) do
@@ -160,7 +248,7 @@ local function buildPriority()
             log.warn("network", "Wi-Fi 配置不可用")
         end
     end
-    if cellular_data_enabled then
+    if cellular_data_enabled and not cellular_flight_mode then
         table.insert(priority, { LWIP_GP = true })
     end
     return priority
@@ -174,6 +262,20 @@ function util_network.init()
     wifi_adapter = tonumber(network.wifi_adapter) or 2
     cellular_adapter = tonumber(network.cellular_adapter) or 1
     cellular_data_enabled = network.cellular_data_enabled == true
+    cellular_flight_mode = network.cellular_flight_mode == true
+    if cellular_flight_mode then setAutoRecovery(false) end
+    local flight_ok, flight_detail = applyFlightMode(cellular_flight_mode)
+    if not flight_ok then
+        log.error("network", "cellular flight mode failed", tostring(flight_detail))
+        cellular_flight_mode = false
+        network.cellular_flight_mode = false
+    end
+    local reselect_ok, reselect_detail = configureCellPolicy(
+        "cellular_auto_reselect", "CONF_RESELTOWEAKNCELL", "delta", 15,
+        "cell reselection delta", "cell_reselection")
+    if not reselect_ok then
+        log.warn("network", "cell reselection policy not applied", tostring(reselect_detail))
+    end
     configureDns()
     diag("init", "mode", cellular_data_enabled and "wifi_cellular_fallback" or "wifi_only",
         "wifi_adapter", wifi_adapter)
@@ -207,12 +309,45 @@ function util_network.currentAdapter()
     return ready and active_adapter or nil
 end
 
+function util_network.isFlightMode()
+    return cellular_flight_mode
+end
+
+function util_network.setFlightMode(enabled)
+    enabled = enabled == true
+    if cellular_flight_mode == enabled then return true end
+
+    if enabled then setAutoRecovery(false) end
+    local ok, detail = applyFlightMode(enabled)
+    if not ok then
+        if enabled then setAutoRecovery(true) end
+        return false, detail
+    end
+
+    local pin_verified
+    if not enabled then
+        local verify_ok, verify_detail = verifyPinAfterFlightModeExit()
+        if not verify_ok then
+            log.warn("network", "SIM PIN verification failed after leaving flight mode", verify_detail)
+            return false, verify_detail
+        end
+        pin_verified = verify_detail
+    end
+
+    cellular_flight_mode = enabled
+    networkConfig().cellular_flight_mode = enabled
+    if not enabled then setAutoRecovery(true) end
+    if enabled and active_adapter == cellular_adapter then publishState(false) end
+    return true, nil, pin_verified
+end
+
 function util_network.getStatus()
     local network = networkConfig()
     local wifi = type(network.wifi) == "table" and network.wifi or {}
     local wifi_enabled = wifi.enabled ~= false
     local wifi_ip = wifi_enabled and localIp(wifi_adapter) or nil
-    local cellular_ip = cellular_data_enabled and localIp(cellular_adapter) or nil
+    local cellular_ip = cellular_data_enabled and not cellular_flight_mode
+        and localIp(cellular_adapter) or nil
     local wifi_connected = wifi_enabled
         and (wifi_ip ~= nil or (ready and active_adapter == wifi_adapter))
     local wifi_rssi, wifi_rssi_source = "unknown", "not_connected"
@@ -223,7 +358,8 @@ function util_network.getStatus()
         ready = ready,
         adapter = active_adapter,
         network_type = active_type,
-        cellular_data_enabled = cellular_data_enabled,
+        cellular_data_enabled = cellular_data_enabled and not cellular_flight_mode,
+        cellular_flight_mode = cellular_flight_mode,
         cellular_local_ip = cellular_ip or "none",
         wifi_enabled = wifi_enabled,
         wifi_connected = wifi_connected,

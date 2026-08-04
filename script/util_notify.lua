@@ -254,15 +254,17 @@ function util_notify.addCall(envelope)
     return addEnvelope(envelope, channels)
 end
 
-function util_notify.addSystem(content, include_bark, include_device_info)
-    return addEnvelope({
+function util_notify.addSystem(content, include_bark, include_device_info, network_adapter)
+    local envelope = {
         id = nextMessageId(),
         kind = "system",
         sender = "",
         content = tostring(content or ""),
         received_at = os.date("%Y-%m-%d %H:%M:%S"),
         include_device_info = include_device_info == true,
-    }, util_router.systemChannels(config, bark_enabled, include_bark))
+    }
+    if type(network_adapter) == "number" then envelope.network_adapter = network_adapter end
+    return addEnvelope(envelope, util_router.systemChannels(config, bark_enabled, include_bark))
 end
 
 function util_notify.addChannelTest(channel)

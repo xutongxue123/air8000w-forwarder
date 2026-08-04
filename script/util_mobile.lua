@@ -18,12 +18,12 @@ local operators = {
 
 function util_mobile.pinVerify(pin_code)
     pin_code = tostring(pin_code or "")
+    local sim_id = mobile.simid()
+    if mobile.simPin(sim_id) then return true end
     if #pin_code < 4 or #pin_code > 8 then
         log.warn("mobile", "PIN 长度无效")
         return false
     end
-    local sim_id = mobile.simid()
-    if mobile.simPin(sim_id) then return true end
     local result = mobile.simPin(sim_id, mobile.PIN_VERIFY, pin_code)
     info("PIN 验证", result and "成功" or "失败")
     return result
@@ -59,6 +59,12 @@ function util_mobile.localNumber()
     local fallback = config.FALLBACK_LOCAL_NUMBER
     if validNumber(fallback) then return fallback end
     return "未知"
+end
+
+function util_mobile.serviceCell()
+    if mobile == nil or type(mobile.scell) ~= "function" then return {} end
+    local ok, value = pcall(mobile.scell)
+    return ok and type(value) == "table" and value or {}
 end
 
 local function uptime()

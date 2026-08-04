@@ -36,6 +36,11 @@ local function callConfig()
     return type(config.CALL) == "table" and config.CALL or {}
 end
 
+local function cellularFlightMode()
+    local network = type(config.NETWORK) == "table" and config.NETWORK or {}
+    return network.cellular_flight_mode == true
+end
+
 local function info(...)
     if type(USER_LOG_INFO) == "function" then
         USER_LOG_INFO("call", ...)
@@ -115,6 +120,7 @@ local function markSystemReady(source)
 end
 
 local function handleState(state, value, extra)
+    if cellularFlightMode() then return end
     state = tostring(state or "UNKNOWN")
     if state == "READY" then
         info("模块就绪")

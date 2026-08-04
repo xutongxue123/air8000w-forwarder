@@ -86,7 +86,8 @@ channels.bark = {
         if type(body) ~= "string" then
             return failure("exception", "Bark request encoding failed")
         end
-        local code, _, response_body = util_http.fetch(nil, "POST", url, headers, body)
+        local code, _, response_body = util_http.fetch(nil, "POST", url, headers, body,
+            envelope.network_adapter)
         if type(code) ~= "number" or code < 200 or code >= 300 then
             return failure(httpFailureClass(code), "Bark HTTP request failed")
         end
@@ -245,7 +246,8 @@ channels.feishu = {
         local ok, body = pcall(json.encode, request)
         if not ok or type(body) ~= "string" then return failure("exception", "Feishu request encoding failed") end
         local code, _, response_body = util_http.fetch(nil, "POST", channel_config.webhook,
-            { ["Content-Type"] = "application/json; charset=utf-8" }, body)
+            { ["Content-Type"] = "application/json; charset=utf-8" }, body,
+            envelope.network_adapter)
         if type(code) ~= "number" or code < 200 or code >= 300 then
             return httpFailure("Feishu", code, response_body)
         end
@@ -294,7 +296,8 @@ channels.webhook = {
         local headers = clone(channel_config.headers or {})
         headers["Content-Type"] = headers["Content-Type"] or "application/json; charset=utf-8"
         headers["X-Message-ID"] = tostring(envelope.id or "")
-        local code = util_http.fetch(nil, "POST", channel_config.url, headers, body)
+        local code = util_http.fetch(nil, "POST", channel_config.url, headers, body,
+            envelope.network_adapter)
         if type(code) ~= "number" or code < 200 or code >= 300 then
             return httpFailure("Webhook", code)
         end
@@ -378,7 +381,8 @@ channels.dingtalk = {
             return failure("exception", "DingTalk request encoding failed")
         end
         local headers = { ["Content-Type"] = "application/json; charset=utf-8" }
-        local code, _, response_body = util_http.fetch(nil, "POST", url, headers, body)
+        local code, _, response_body = util_http.fetch(nil, "POST", url, headers, body,
+            envelope.network_adapter)
         if type(code) ~= "number" or code < 200 or code >= 300 then
             return httpFailure("DingTalk", code, response_body)
         end
@@ -441,7 +445,8 @@ channels.custom_post = {
             if not body then return failure("configuration", "archive form body cannot be nested") end
         end
 
-        local code, _, response_body = util_http.fetch(nil, "POST", channel_config.url, headers, body)
+        local code, _, response_body = util_http.fetch(nil, "POST", channel_config.url, headers, body,
+            envelope.network_adapter)
         if type(code) ~= "number" or code < 200 or code >= 300 then
             return failure(httpFailureClass(code), "archive HTTP request failed")
         end
